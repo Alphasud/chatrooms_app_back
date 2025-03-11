@@ -259,6 +259,16 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
     client.emit('chatroomList', chatroomList);
   }
 
+  // Used when a user requests to join a new chatroom via url
+  @SubscribeMessage('doesChatroomExist')
+  async handleDoesChatroomExist(
+    @ConnectedSocket() client: Socket,
+    @MessageBody() chatroomId: string,
+  ) {
+    const chatroomExists = await this.chatService.doesChatroomExist(chatroomId);
+    client.emit('chatroomExists', chatroomExists);
+  }
+
   async handleDisconnect(client: Socket) {
     console.log(`Client disconnected: ${client.id}`);
 

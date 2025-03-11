@@ -40,13 +40,12 @@ export class ChatService {
     }
 
     // Create a new chatroom with the first user
-    const chatroom = new this.chatroomModel({
+    const chatroom = await this.chatroomModel.create({
       chatroomId,
       users: [username], // Add user directly in creation
       lastActiveAt: new Date(),
     });
 
-    await chatroom.save();
     return chatroom;
   }
 
@@ -99,19 +98,18 @@ export class ChatService {
       throw new NotFoundException('Chatroom not found');
     }
 
-    const newMessage = new this.messageModel({
+    const newMessage = this.messageModel.create({
       username,
       text,
       createdAt,
       chatroomId,
     } as Message);
 
-    // Save the message to the Message collection
-    await newMessage.save();
-
     // Optionally, you can also update the lastActiveAt field on the chatroom
     chatroom.lastActiveAt = new Date();
-    await this.chatroomModel.findByIdAndUpdate(chatroom._id, chatroom);
+    await this.chatroomModel.findByIdAndUpdate(chatroom._id, {
+      lastActiveAt: new Date(),
+    });
 
     return newMessage;
   }
