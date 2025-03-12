@@ -24,7 +24,7 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
   // Handle new connections
   handleConnection(client: Socket) {
     console.log(`🚀 Client connected: ${client.id}`);
-    client.emit('welcome', 'Welcome to Chat App!');
+    client.emit('connected', true);
     this.activeUsersOnServer.set(client.id, {
       username: client.id,
       chatroomId: '',
@@ -38,9 +38,14 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
     { newUsername }: { newUsername: string },
   ) {
     const user = this.activeUsersOnServer.get(client.id);
-    console.log('Active users:', this.activeUsersOnServer);
+    console.log('-----------------------------------');
+    console.log('Active users:');
+    this.activeUsersOnServer.forEach((value, key) => {
+      console.log(`${JSON.stringify(value)} ${key}`);
+    });
     if (user) {
       console.log('Updating username:', user.username, 'to', newUsername);
+      console.log('----------------------------------');
       user.username = newUsername;
       this.server.emit(
         'usersList',
@@ -152,6 +157,9 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
       // Emit the saved system message to all users in the chatroom
       this.server.to(chatroomId).emit('receiveMessage', savedMessage);
 
+      //Emit the chatroomlist with updated lastActiveAt
+      this.server.emit('chatroomsList', await this.chatService.getChatrooms());
+
       return { success: true, chatroom };
     } catch (error) {
       return { error: (error as Error).message };
@@ -227,6 +235,11 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
       createdAt: Date;
     },
   ) {
+    if (!chatroomId || !username || !text || !createdAt) {
+      return {
+        error: 'Chatroom ID, Username, Text, and CreatedAt are required',
+      };
+    }
     const message = await this.chatService.saveMessage(
       chatroomId,
       username,
@@ -241,10 +254,10 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
     @ConnectedSocket() client: Socket,
     @MessageBody() chatroomId: string,
   ) {
-    const userList = Array.from(this.activeUsersOnServer.values()).filter(
+    const usersList = Array.from(this.activeUsersOnServer.values()).filter(
       (user) => user.chatroomId === chatroomId,
     );
-    client.emit('chatroomUsersList', userList);
+    client.emit('chatroomUsersList', usersList);
   }
 
   // When a user requests the list of total users on the server
@@ -254,9 +267,10 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
   }
 
   // When a user requests the list of existing chatrooms
-  handleGetChatroomList(@ConnectedSocket() client: Socket) {
-    const chatroomList = this.chatService.getChatrooms();
-    client.emit('chatroomList', chatroomList);
+  @SubscribeMessage('getChatroomsList')
+  async handleGetChatroomsList(@ConnectedSocket() client: Socket) {
+    const chatroomList = await this.chatService.getChatrooms();
+    client.emit('chatroomsList', chatroomList);
   }
 
   // Used when a user requests to join a new chatroom via url
@@ -311,5 +325,23 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
         Array.from(this.activeUsersOnServer.values()),
       );
     }
+  }
+  onModuleInit() {
+    setInterval(
+      () => {
+        void (async () => {
+          try {
+            const updatedChatrooms =
+              await this.chatService.removeInactiveChatrooms();
+            if (updatedChatrooms) {
+              this.server.emit('chatroomsList', updatedChatrooms);
+            }
+          } catch (error) {
+            console.error('Error updating chatrooms:', error);
+          }
+        })();
+      },
+      5 * 60 * 1000,
+    ); // Runs every 5 minutes
   }
 }

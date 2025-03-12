@@ -25,7 +25,7 @@ export class ChatService {
 
   /** Check if a chatroom exists */
   async doesChatroomExist(chatroomId: string): Promise<boolean> {
-    return (await this.chatroomModel.exists({ name: chatroomId })) !== null;
+    return (await this.chatroomModel.exists({ chatroomId })) !== null;
   }
 
   /** CREATE A NEW CHATROOM */
@@ -129,6 +129,7 @@ export class ChatService {
 
   /** REMOVE AN INACTIVE CHATROOM */
   async removeInactiveChatrooms() {
+    let deletedAny = false;
     const tenMinutesAgo = new Date(Date.now() - 10 * 60 * 1000);
 
     const inactiveChatrooms = await this.chatroomModel.find({
@@ -136,25 +137,25 @@ export class ChatService {
     });
 
     for (const chatroom of inactiveChatrooms) {
-      const users = await this.userModel.find({
-        chatroomId: chatroom.chatroomId,
+      const users = await this.chatroomModel.find({
+        users: chatroom.users,
       });
 
       if (users.length === 0) {
+        // Delete the chatroom if no users are associated with it
         await this.chatroomModel.findByIdAndDelete(chatroom._id);
         this.logger.log(`Deleted inactive chatroom: ${chatroom.chatroomId}`);
+        // Delete all messages associated with the chatroom
+        await this.messageModel.deleteMany({ chatroomId: chatroom.chatroomId });
+        this.logger.log(
+          `Deleted messages for inactive chatroom: ${chatroom.chatroomId}`,
+        );
+        deletedAny = true;
+      }
+      // Emit updated chatroom list if any chatroom was deleted
+      if (deletedAny) {
+        return await this.getChatrooms();
       }
     }
-  }
-
-  onModuleInit() {
-    setInterval(
-      () => {
-        this.removeInactiveChatrooms().catch((error) =>
-          this.logger.error(error),
-        );
-      },
-      5 * 60 * 1000,
-    ); // Runs every 5 minutes
   }
 }
