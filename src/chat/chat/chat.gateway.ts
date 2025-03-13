@@ -214,6 +214,7 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
       }
 
       await client.leave(chatroomId);
+      this.server.emit('chatroomsList', await this.chatService.getChatrooms());
       return result;
     } catch (error) {
       return { error: (error as Error).message };
@@ -245,6 +246,10 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
       username,
       text,
       createdAt,
+    );
+    this.server.emit(
+      'chatroomsList',
+      await this.chatService.updateChatroomLastActive(chatroomId),
     );
     this.server.to(chatroomId).emit('receiveMessage', message);
   }

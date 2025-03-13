@@ -127,6 +127,15 @@ export class ChatService {
     return this.chatroomModel.find().exec();
   }
 
+  async updateChatroomLastActive(chatroomId: string) {
+    await this.chatroomModel.findOneAndUpdate(
+      { chatroomId },
+      { lastActiveAt: new Date() },
+      { new: true },
+    );
+    return await this.getChatrooms();
+  }
+
   /** REMOVE AN INACTIVE CHATROOM */
   async removeInactiveChatrooms() {
     let deletedAny = false;
