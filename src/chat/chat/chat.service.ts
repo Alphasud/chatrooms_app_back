@@ -135,13 +135,8 @@ export class ChatService {
     const inactiveChatrooms = await this.chatroomModel.find({
       lastActiveAt: { $lt: tenMinutesAgo },
     });
-
     for (const chatroom of inactiveChatrooms) {
-      const users = await this.chatroomModel.find({
-        users: chatroom.users,
-      });
-
-      if (users.length === 0) {
+      if (chatroom.users.length === 0) {
         // Delete the chatroom if no users are associated with it
         await this.chatroomModel.findByIdAndDelete(chatroom._id);
         this.logger.log(`Deleted inactive chatroom: ${chatroom.chatroomId}`);
