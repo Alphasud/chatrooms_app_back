@@ -9,6 +9,7 @@ import {
 } from '@nestjs/websockets';
 import { Server, Socket } from 'socket.io';
 import { ChatService } from './chat.service';
+import { generateRandomColors } from 'src/utils';
 
 @WebSocketGateway({ cors: true })
 export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
@@ -18,7 +19,12 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
 
   private activeUsersOnServer = new Map<
     string,
-    { username: string; chatroomId: string }
+    {
+      username: string;
+      chatroomId: string;
+      colorScheme: string[];
+      bubbleColor: string;
+    }
   >();
 
   // Handle new connections
@@ -28,7 +34,10 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
     this.activeUsersOnServer.set(client.id, {
       username: client.id,
       chatroomId: '',
+      colorScheme: generateRandomColors(10),
+      bubbleColor: generateRandomColors(1)[0],
     });
+    console.log('Users on server:', this.activeUsersOnServer.size);
   }
 
   @SubscribeMessage('updateUsernameInUsersList') // When a user updates their username
@@ -47,6 +56,7 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
       console.log('Updating username:', user.username, 'to', newUsername);
       console.log('----------------------------------');
       user.username = newUsername;
+      this.activeUsersOnServer.set(client.id, user);
       this.server.emit(
         'usersList',
         Array.from(this.activeUsersOnServer.values()),
@@ -70,9 +80,6 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
         chatroomId,
         username,
       );
-
-      // Store the user in the active users map
-      this.activeUsersOnServer.set(client.id, { username, chatroomId });
 
       // Join the user to the chatroom's socket room
       await client.join(chatroomId);
@@ -99,6 +106,17 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
       // Emit the system message to all users in the chatroom
       this.server.to(chatroomId).emit('receiveMessage', savedMessage);
 
+      // Update the user's user list
+      const user = this.activeUsersOnServer.get(client.id);
+      if (user) {
+        user.chatroomId = chatroomId;
+        this.activeUsersOnServer.set(client.id, user);
+      }
+      this.server.emit(
+        'usersList',
+        Array.from(this.activeUsersOnServer.values()),
+      );
+
       return { success: true, chatroom: newChatroom };
     } catch (error) {
       return { error: (error as Error).message };
@@ -121,8 +139,12 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
         username,
       );
 
-      // Store the user in the active users map
-      this.activeUsersOnServer.set(client.id, { username, chatroomId });
+      // Update the user's chatroom
+      const user = this.activeUsersOnServer.get(client.id);
+      if (user) {
+        user.chatroomId = chatroom ? chatroom.chatroomId : '';
+        this.activeUsersOnServer.set(client.id, user);
+      }
 
       // Update the user list for all users
       this.server.emit(
@@ -156,9 +178,6 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
 
       // Emit the saved system message to all users in the chatroom
       this.server.to(chatroomId).emit('receiveMessage', savedMessage);
-
-      //Emit the chatroomlist with updated lastActiveAt
-      this.server.emit('chatroomsList', await this.chatService.getChatrooms());
 
       return { success: true, chatroom };
     } catch (error) {
@@ -199,8 +218,12 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
       // Emit the saved system message to all users in the chatroom
       this.server.to(chatroomId).emit('receiveMessage', savedMessage);
 
-      // update the user from the active users map
-      this.activeUsersOnServer.set(client.id, { username, chatroomId: '' });
+      // Update the user's chatroom
+      const user = this.activeUsersOnServer.get(client.id);
+      if (user) {
+        user.chatroomId = '';
+        this.activeUsersOnServer.set(client.id, user);
+      }
 
       // Update the user list for all users
       this.server.emit(
@@ -241,11 +264,15 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
         error: 'Chatroom ID, Username, Text, and CreatedAt are required',
       };
     }
+    const user = this.activeUsersOnServer.get(username);
+    const bubbleColor = user ? user.bubbleColor : generateRandomColors(1)[0];
+
     const message = await this.chatService.saveMessage(
       chatroomId,
       username,
       text,
       createdAt,
+      bubbleColor,
     );
     this.server.emit(
       'chatroomsList',
@@ -324,7 +351,6 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
       }
 
       this.activeUsersOnServer.delete(client.id);
-
       this.server.emit(
         'usersList',
         Array.from(this.activeUsersOnServer.values()),

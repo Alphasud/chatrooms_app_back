@@ -11,6 +11,8 @@ export class Message extends Document {
   createdAt: Date;
   @Prop({ required: true })
   chatroomId: string;
+  @Prop({ required: false })
+  bubbleColor: string;
 }
 
 export const MessageSchema = SchemaFactory.createForClass(Message);

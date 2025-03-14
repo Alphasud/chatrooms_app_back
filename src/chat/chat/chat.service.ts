@@ -91,6 +91,7 @@ export class ChatService {
     username: string,
     text: string,
     createdAt: Date,
+    bubbleColor?: string,
   ): Promise<Message> {
     // Ensure the chatroom exists
     const chatroom = await this.chatroomModel.findOne({ chatroomId }).lean();
@@ -103,6 +104,7 @@ export class ChatService {
       text,
       createdAt,
       chatroomId,
+      bubbleColor,
     } as Message);
 
     // Optionally, you can also update the lastActiveAt field on the chatroom
@@ -127,6 +129,7 @@ export class ChatService {
     return this.chatroomModel.find().exec();
   }
 
+  /** UPDATE LAST ACTIVE FOR A CHAT ROOM */
   async updateChatroomLastActive(chatroomId: string) {
     await this.chatroomModel.findOneAndUpdate(
       { chatroomId },
