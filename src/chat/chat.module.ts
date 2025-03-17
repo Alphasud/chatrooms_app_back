@@ -5,6 +5,7 @@ import { ChatGateway } from './chat/chat.gateway';
 import { Chatroom, ChatroomSchema } from './schemas/chatroom.schema';
 import { User, UserSchema } from './schemas/user.schema';
 import { Message, MessageSchema } from './schemas/message.schema';
+import { UserService } from './user/user.service';
 
 @Module({
   imports: [
@@ -14,7 +15,7 @@ import { Message, MessageSchema } from './schemas/message.schema';
       { name: Message.name, schema: MessageSchema },
     ]),
   ],
-  providers: [ChatService, ChatGateway],
-  exports: [ChatService],
+  providers: [ChatService, ChatGateway, UserService],
+  exports: [ChatService, UserService],
 })
 export class ChatModule {}

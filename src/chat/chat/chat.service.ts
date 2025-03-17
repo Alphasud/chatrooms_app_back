@@ -1,4 +1,9 @@
-import { Injectable, Logger, NotFoundException } from '@nestjs/common';
+import {
+  Injectable,
+  Logger,
+  NotFoundException,
+  OnApplicationShutdown,
+} from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model } from 'mongoose';
 import { Chatroom } from '../schemas/chatroom.schema';
@@ -6,7 +11,7 @@ import { Message } from '../schemas/message.schema';
 import { User } from '../schemas/user.schema';
 
 @Injectable()
-export class ChatService {
+export class ChatService implements OnApplicationShutdown {
   private readonly logger = new Logger(ChatService.name);
 
   constructor(
@@ -14,6 +19,29 @@ export class ChatService {
     @InjectModel(User.name) private userModel: Model<User>,
     @InjectModel(Message.name) private messageModel: Model<Message>,
   ) {}
+
+  async onApplicationShutdown() {
+    await this.purgeMessages();
+    await this.purgeChatrooms();
+  }
+
+  async purgeMessages() {
+    try {
+      await this.messageModel.deleteMany({});
+      this.logger.log('All messages have been purged from the database.');
+    } catch (error) {
+      this.logger.error('Error purging messages:', error);
+    }
+  }
+
+  async purgeChatrooms() {
+    try {
+      await this.chatroomModel.deleteMany({});
+      this.logger.log('All chatrooms have been purged from the database.');
+    } catch (error) {
+      this.logger.error('Error purging chatrooms:', error);
+    }
+  }
 
   async updateLastActive(username: string) {
     await this.userModel.findOneAndUpdate(
@@ -45,7 +73,7 @@ export class ChatService {
       users: [username], // Add user directly in creation
       lastActiveAt: new Date(),
     });
-
+    this.logger.log(`Created chatroom: ${chatroomId}`);
     return chatroom;
   }
 
@@ -63,7 +91,7 @@ export class ChatService {
       chatroom.users.push(username);
       await chatroom.save();
     }
-
+    this.logger.log(`User ${username} joined chatroom: ${chatroomId}`);
     return chatroom;
   }
 
@@ -77,11 +105,10 @@ export class ChatService {
     if (!chatroom) {
       throw new Error('Chatroom does not exist');
     }
-
     // Remove user only if they are in the chatroom
     chatroom.users = chatroom.users.filter((user) => user !== username);
-
     await chatroom.save();
+    this.logger.log(`User ${username} left chatroom: ${chatroomId}`);
     return { success: true, chatroom };
   }
 
@@ -108,7 +135,6 @@ export class ChatService {
     } as Message);
 
     // Optionally, you can also update the lastActiveAt field on the chatroom
-    chatroom.lastActiveAt = new Date();
     await this.chatroomModel.findByIdAndUpdate(chatroom._id, {
       lastActiveAt: new Date(),
     });
@@ -142,7 +168,7 @@ export class ChatService {
   /** REMOVE AN INACTIVE CHATROOM */
   async removeInactiveChatrooms() {
     let deletedAny = false;
-    const tenMinutesAgo = new Date(Date.now() - 10 * 60 * 1000);
+    const tenMinutesAgo = new Date(Date.now() - 5 * 60 * 1000);
 
     const inactiveChatrooms = await this.chatroomModel.find({
       lastActiveAt: { $lt: tenMinutesAgo },

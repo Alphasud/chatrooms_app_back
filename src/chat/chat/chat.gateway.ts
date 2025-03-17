@@ -10,56 +10,41 @@ import {
 import { Server, Socket } from 'socket.io';
 import { ChatService } from './chat.service';
 import { generateRandomColors } from 'src/utils';
+import { UserService } from '../user/user.service';
+import { Logger } from '@nestjs/common';
 
 @WebSocketGateway({ cors: true })
 export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
+  private readonly logger = new Logger(ChatGateway.name);
   @WebSocketServer() server: Server;
 
-  constructor(private readonly chatService: ChatService) {}
-
-  private activeUsersOnServer = new Map<
-    string,
-    {
-      username: string;
-      chatroomId: string;
-      colorScheme: string[];
-      bubbleColor: string;
-    }
-  >();
+  constructor(
+    private readonly chatService: ChatService,
+    private readonly userService: UserService,
+  ) {}
 
   // Handle new connections
-  handleConnection(client: Socket) {
-    console.log(`🚀 Client connected: ${client.id}`);
+  async handleConnection(client: Socket) {
+    this.logger.log(`Client connected: ${client.id}`);
     client.emit('connected', true);
-    this.activeUsersOnServer.set(client.id, {
-      username: client.id,
-      chatroomId: '',
-      colorScheme: generateRandomColors(10),
-      bubbleColor: generateRandomColors(1)[0],
-    });
-    console.log('Users on server:', this.activeUsersOnServer.size);
+    await this.userService.createUser(client.id);
   }
 
   @SubscribeMessage('updateUsernameInUsersList') // When a user updates their username
-  handleUpdateUsernameInUserList(
+  async handleUpdateUsernameInUserList(
     @ConnectedSocket() client: Socket,
     @MessageBody()
     { newUsername }: { newUsername: string },
   ) {
-    const user = this.activeUsersOnServer.get(client.id);
-    console.log('-----------------------------------');
-    console.log('Active users:');
-    this.activeUsersOnServer.forEach((value, key) => {
-      console.log(`${JSON.stringify(value)} ${key}`);
-    });
+    if (!newUsername) {
+      return { error: 'New Username is required' };
+    }
+    const user = await this.userService.updateUserName(client.id, newUsername);
+
     if (user) {
-      console.log('Updating username:', user.username, 'to', newUsername);
-      console.log('----------------------------------');
-      user.username = newUsername;
-      this.activeUsersOnServer.set(client.id, user);
       this.server.emit(
         'usersList',
-        Array.from(this.activeUsersOnServer.values()),
+        Array.from(await this.userService.getUsersList()),
       );
     }
   }
@@ -106,15 +91,11 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
       // Emit the system message to all users in the chatroom
       this.server.to(chatroomId).emit('receiveMessage', savedMessage);
 
-      // Update the user's user list
-      const user = this.activeUsersOnServer.get(client.id);
-      if (user) {
-        user.chatroomId = chatroomId;
-        this.activeUsersOnServer.set(client.id, user);
-      }
+      // Update the user's chatroom
+      await this.userService.updateUserChatroomId(username, chatroomId);
       this.server.emit(
         'usersList',
-        Array.from(this.activeUsersOnServer.values()),
+        Array.from(await this.userService.getUsersList()),
       );
 
       return { success: true, chatroom: newChatroom };
@@ -140,16 +121,11 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
       );
 
       // Update the user's chatroom
-      const user = this.activeUsersOnServer.get(client.id);
-      if (user) {
-        user.chatroomId = chatroom ? chatroom.chatroomId : '';
-        this.activeUsersOnServer.set(client.id, user);
-      }
 
-      // Update the user list for all users
+      await this.userService.updateUserChatroomId(username, chatroomId);
       this.server.emit(
         'usersList',
-        Array.from(this.activeUsersOnServer.values()),
+        Array.from(await this.userService.getUsersList()),
       );
 
       // Join the user to the chatroom's socket room
@@ -219,16 +195,11 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
       this.server.to(chatroomId).emit('receiveMessage', savedMessage);
 
       // Update the user's chatroom
-      const user = this.activeUsersOnServer.get(client.id);
-      if (user) {
-        user.chatroomId = '';
-        this.activeUsersOnServer.set(client.id, user);
-      }
+      await this.userService.updateUserChatroomId(username, '');
 
-      // Update the user list for all users
       this.server.emit(
         'usersList',
-        Array.from(this.activeUsersOnServer.values()),
+        Array.from(await this.userService.getUsersList()),
       );
 
       if (result.deleted) {
@@ -264,7 +235,7 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
         error: 'Chatroom ID, Username, Text, and CreatedAt are required',
       };
     }
-    const user = this.activeUsersOnServer.get(username);
+    const user = await this.userService.getUserByUsername(username);
     const bubbleColor = user ? user.bubbleColor : generateRandomColors(1)[0];
 
     const message = await this.chatService.saveMessage(
@@ -282,19 +253,17 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
   }
 
   // When a user requests the list of users in the chatroom
-  handleGetChatroomUserList(
+  async handleGetChatroomUserList(
     @ConnectedSocket() client: Socket,
     @MessageBody() chatroomId: string,
   ) {
-    const usersList = Array.from(this.activeUsersOnServer.values()).filter(
-      (user) => user.chatroomId === chatroomId,
-    );
+    const usersList = await this.userService.getUsersByChatroomId(chatroomId);
     client.emit('chatroomUsersList', usersList);
   }
 
   // When a user requests the list of total users on the server
-  handleGetTotalUsersList(@ConnectedSocket() client: Socket) {
-    const usersList = Array.from(this.activeUsersOnServer.values());
+  async handleGetTotalUsersList(@ConnectedSocket() client: Socket) {
+    const usersList = await this.userService.getUsersList();
     client.emit('usersList', usersList);
   }
 
@@ -316,15 +285,14 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
   }
 
   async handleDisconnect(client: Socket) {
-    console.log(`Client disconnected: ${client.id}`);
+    this.logger.log(`Client disconnected: ${client.id}`);
 
-    const user = this.activeUsersOnServer.get(client.id);
+    const user = await this.userService.getUserByClientId(client.id);
 
     if (user) {
       const { username, chatroomId } = user;
 
-      // check if user is in a chatroom
-      if (chatroomId) {
+      if (chatroomId !== '' && chatroomId !== 'lobby') {
         const systemMessage = {
           username: 'System',
           text: `${username} has left the chatroom.`,
@@ -350,10 +318,10 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
         await this.chatService.leaveChatroom(chatroomId, username);
       }
 
-      this.activeUsersOnServer.delete(client.id);
+      await this.userService.deleteUser(client.id, username);
       this.server.emit(
         'usersList',
-        Array.from(this.activeUsersOnServer.values()),
+        Array.from(await this.userService.getUsersList()),
       );
     }
   }
